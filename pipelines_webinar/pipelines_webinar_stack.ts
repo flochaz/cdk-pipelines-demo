@@ -52,6 +52,8 @@ export class PipelinesWebinarStack extends Stack {
       API_URL: api.url,
     });
 
+    canary.node.addDependency(api);
+
     const failureAlarm = new cloudwatch.Alarm(this, 'CanaryAlarm', {
       metric: canary.metricSuccessPercent({
         period: Duration.minutes(1),
