@@ -1,13 +1,18 @@
 import path = require('path');
-import { CfnOutput, Construct, Duration, Stack, StackProps } from '@aws-cdk/core';
-import * as lambda from '@aws-cdk/aws-lambda'
-import * as iam from '@aws-cdk/aws-iam'
-import * as apigw from '@aws-cdk/aws-apigateway'
-import * as codedeploy from '@aws-cdk/aws-codedeploy'
+import {
+  CfnOutput,
+  Construct,
+  Duration,
+  Stack,
+  StackProps,
+} from '@aws-cdk/core';
+import * as lambda from '@aws-cdk/aws-lambda';
+import * as iam from '@aws-cdk/aws-iam';
+import * as apigw from '@aws-cdk/aws-apigateway';
+import * as codedeploy from '@aws-cdk/aws-codedeploy';
 import * as cloudwatch from '@aws-cdk/aws-cloudwatch';
 import * as synthetics from '@aws-cdk/aws-synthetics';
 import * as ssm from '@aws-cdk/aws-ssm';
-
 
 export class PipelinesWebinarStack extends Stack {
   urlOutput: CfnOutput;
@@ -23,7 +28,7 @@ export class PipelinesWebinarStack extends Stack {
 
     const alias = new lambda.Alias(this, 'x', {
       aliasName: 'Current',
-      version: handler.currentVersion
+      version: handler.currentVersion,
     });
 
     const api = new apigw.LambdaRestApi(this, 'Gateway', {
@@ -38,21 +43,18 @@ export class PipelinesWebinarStack extends Stack {
         handler: 'apiCall.handler',
       }),
       runtime: synthetics.Runtime.SYNTHETICS_NODEJS_2_0,
-      startAfterCreation: false
+      startAfterCreation: false,
     });
 
-    const apiUrlParam = new ssm.StringParameter(this, 'APIURL', {
-      parameterName: `${canary.canaryName}-APIURL`,
-      simpleName: true,
-      stringValue: api.url
+    const cfnCanary = canary.node.defaultChild as synthetics.CfnCanary;
+    cfnCanary.addPropertyOverride('RunConfig.EnvironmentVariables', {
+      API_URL: api.url,
     });
 
-    apiUrlParam.grantRead(canary.role);
-    
     const failureAlarm = new cloudwatch.Alarm(this, 'CanaryAlarm', {
       metric: canary.metricSuccessPercent({
         period: Duration.minutes(1),
-        statistic: cloudwatch.Statistic.AVERAGE
+        statistic: cloudwatch.Statistic.AVERAGE,
       }),
       evaluationPeriods: 1,
       threshold: 90,
@@ -66,9 +68,8 @@ export class PipelinesWebinarStack extends Stack {
       handler: 'canaryController.startCanary',
       code: lambda.Code.fromAsset(path.join(__dirname, 'canary')),
       environment: {
-        CANARY_NAME: canary.canaryName
-
-      }
+        CANARY_NAME: canary.canaryName,
+      },
     });
 
     const postHookLambda = new lambda.Function(this, 'stopCanary', {
@@ -77,41 +78,41 @@ export class PipelinesWebinarStack extends Stack {
       handler: 'canaryController.stopCanary',
       code: lambda.Code.fromAsset(path.join(__dirname, 'canary')),
       environment: {
-        CANARY_NAME: canary.canaryName
+        CANARY_NAME: canary.canaryName,
+      },
+    });
+
+    preHookLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        resources: ['*'],
+        actions: ['synthetics:StartCanary', 'synthetics:StopCanary'],
+      })
+    );
+
+    postHookLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        resources: ['*'],
+        actions: ['synthetics:StartCanary', 'synthetics:StopCanary'],
+      })
+    );
+
+    const lambdaDeploymentConfig = new codedeploy.CustomLambdaDeploymentConfig(
+      this,
+      'CustomConfig',
+      {
+        type: codedeploy.CustomLambdaDeploymentConfigType.CANARY,
+        interval: Duration.minutes(5),
+        percentage: 99,
       }
-    });
-
-    preHookLambda.addToRolePolicy(new iam.PolicyStatement({
-      resources: ['*'],
-      actions: [
-        'synthetics:StartCanary', 
-        'synthetics:StopCanary'
-    ],
-    }));
-
-    postHookLambda.addToRolePolicy(new iam.PolicyStatement({
-      resources: ['*'],
-      actions: [
-        'synthetics:StartCanary', 
-        'synthetics:StopCanary'
-    ],
-    }));
-    
-    const lambdaDeploymentConfig = new codedeploy.CustomLambdaDeploymentConfig(this, 'CustomConfig', {
-      type: codedeploy.CustomLambdaDeploymentConfigType.CANARY,
-      interval: Duration.minutes(5),
-      percentage: 99,
-    });
+    );
 
     new codedeploy.LambdaDeploymentGroup(this, 'DeploymentGroup', {
       alias,
       deploymentConfig: lambdaDeploymentConfig,
-      alarms: [
-        failureAlarm
-      ],
+      alarms: [failureAlarm],
       preHook: preHookLambda,
-      postHook: postHookLambda
-    });    
+      postHook: postHookLambda,
+    });
 
     this.urlOutput = new CfnOutput(this, 'url', { value: api.url });
   }
