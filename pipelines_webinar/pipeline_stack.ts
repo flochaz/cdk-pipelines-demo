@@ -15,9 +15,9 @@ export class PipelineStack extends Stack {
             actionName: 'GitHub',
             output: sourceArtifact,
             oauthToken: SecretValue.secretsManager('github-token'),
-            owner: 'impresys-aws-github',
+            owner: 'flochaz',
             repo: 'cdk-pipelines-demo',
-            branch: 'pipeline-sample'
+            branch: 'typescript'
         });
 
         const synthAction = pipelines.SimpleSynthAction.standardNpmSynth({
